@@ -103,7 +103,12 @@ int main(void)
 		  uart_printf("status=%d\n", status);
 	  }
 #else
-	  i1c_start();
+	  status = i1c_start();
+	  while( 1){
+		  __WFI();
+		  HAL_Delay(1000);
+		  // do some  print
+	  }
 #endif
   /* USER CODE END WHILE */
 
