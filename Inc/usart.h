@@ -57,7 +57,7 @@ extern void Error_Handler(void);
 void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+int uart_printf(const char *fmt, ...);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

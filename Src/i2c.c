@@ -131,11 +131,14 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 /* USER CODE BEGIN 1 */
 
 struct i2c_stat_t {
-	int listen;
-	int error;
-	int tx;
-	int rx;
-	int addr;
+	int listen; // cb cnt
+	int error; // cb cnt
+	int tx; // cb cnt
+	int rx; // cb cnt
+	int addr; // cb cnt
+
+	int no_tx_data; // internal tx with index limit host get more data
+	int no_rx_data; // internal rx with index limit host put more data
 };
 volatile struct i2c_stat_t i2c_cnt;
 volatile int n_cb=0;
@@ -232,7 +235,10 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		}
 		else{
 			// index out of range
-			i2c_debug("index out of range no ack no more recv ");
+			i2c_debug("in rx no more rx possible cos index");
+			i2c_cnt.no_rx_data++;
+			i2c_state = i2c_rx_nodata;
+			// FIXME maybe we shall listen again or is ok to juts wait "listencompletd"
 		}
 
 		break;
@@ -279,11 +285,18 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		else{
 			i2c_debug("host rd no data for index");
 			i2c_state = i2c_tx_nodata;
+			i2c_cnt.no_tx_data++;
+			//FIXME shall we kick off listen again or wait for "complete ie stop or restart ?"
 		}
 
 	}
 }
 
+int i1c_start(){
+	i2c_state = list_addr;
+	i2c_cur_index = 0;
+	return HAL_I2C_EnableListen_IT(&hi2c1);
+}
 
 /* USER CODE END 1 */
 

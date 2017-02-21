@@ -57,7 +57,7 @@ extern void Error_Handler(void);
 void MX_I2C1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+int i1c_start();
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

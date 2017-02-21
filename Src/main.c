@@ -103,6 +103,7 @@ int main(void)
 		  uart_printf("status=%d\n", status);
 	  }
 #else
+	  i1c_start();
 #endif
   /* USER CODE END WHILE */
 
