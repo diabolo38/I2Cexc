@@ -39,6 +39,7 @@
 #include "dma.h"
 
 /* USER CODE BEGIN 0 */
+#include "stm32f4xx_hal.h"
 
 /* USER CODE END 0 */
 
@@ -140,6 +141,44 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
 /* USER CODE BEGIN 1 */
 
+#include <stdarg.h>
+static volatile int uart_buzy_tx=0;
+static int uart_error=0;
+static char uart_buffer[256];
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
+	uart_buzy_tx=0;
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
+	uart_error++;
+	HAL_UART_AbortTransmit(huart);
+	uart_buzy_tx=0;
+}
+
+int uart_vprintf(const char *fmt, va_list ap){
+	int n;
+	while( uart_buzy_tx ){
+		__WFI();
+	}
+	uart_buzy_tx = 1;
+	n=vsnprintf(uart_buffer, sizeof(uart_buffer), fmt, ap);
+	if( n>0 ){
+		HAL_UART_Transmit_DMA(&huart2, (void*)uart_buffer, n);
+	}else{
+		uart_buzy_tx = 0;
+	}
+	return n;
+}
+
+int uart_printf(const char *fmt, ...){
+	va_list ap;
+	int n;
+	va_start(ap, fmt);
+	n=uart_vprintf(fmt,ap);
+	va_end(ap);
+	return n;
+}
 /* USER CODE END 1 */
 
 /**

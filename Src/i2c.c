@@ -38,6 +38,8 @@
 #include "gpio.h"
 
 /* USER CODE BEGIN 0 */
+#define i2c_debug(...) (void)0
+// "index out of range no ack no more recv ");
 
 /* USER CODE END 0 */
 
@@ -127,6 +129,161 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 } 
 
 /* USER CODE BEGIN 1 */
+
+struct i2c_stat_t {
+	int listen;
+	int error;
+	int tx;
+	int rx;
+	int addr;
+};
+volatile struct i2c_stat_t i2c_cnt;
+volatile int n_cb=0;
+int i2c_last_rx;
+uint8_t  i2c_cur_index;
+
+#define N_REG	32
+int i2c_max_index = N_REG; /// all index > thsi bad
+uint8_t i2c_rx_buffer[256];
+uint8_t i2c_reg_buffer[N_REG];
+
+
+enum i2c_state_e{
+	list_addr=0,
+	i2c_index,	// after a addr with wr 1st byte to be rx in
+	i2c_rx, // after index rx we do rx in up to  max data we could
+	i2c_rx_nodata, // after index rx in  rcv => but is bad => data can be read/wr cos bad index just nack
+	i2c_tx, // after index rx in data up to last_rx
+	i2c_tx_nodata, // host ask for rd but index is out of range (at max) and we can't send anything
+};
+int i2c_state;
+
+static void i2c_cb(void){
+	//for brk and check common path to all cb
+	n_cb++;
+
+}
+
+void i2c_fatal(){
+	while(1){
+
+	};
+}
+
+__weak int i2c_do_in_msg(int index, int n_data,  uint8_t *data){
+	return 0;
+}
+
+void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
+	int n_wr;
+	i2c_cnt.listen++;
+	i2c_cb();
+
+	switch (i2c_state){
+	case i2c_rx:
+		// time  to do smthg with all data receive if any
+		n_wr = i2c_last_rx-hi2c1.XferCount;
+		i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
+		i2c_cur_index += n_wr;
+		break;
+
+	case i2c_tx:
+		// time  to do smthg with all data receive if any
+		break;
+
+	default:
+		// whatever get ready again and be ready
+		break;
+	}
+	// whatever we didi get ready again
+	i2c_state = list_addr;
+	HAL_I2C_EnableListen_IT(hi2c);
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
+	i2c_cnt.error++;
+	//TODO listen again ?
+	i2c_cb();
+}
+
+void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
+	i2c_cnt.tx++;
+	i2c_cb();
+	// we have send all data cool ;)
+	// TODO go have to go back to listen if list cplt is nto call !
+	// we can know how many data effecively sent to host by using "count"
+
+}
+
+void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
+	int n_data;
+	i2c_cnt.rx++;
+	i2c_cb();
+	switch( i2c_state){
+	case i2c_index:
+		// now we have index we can limit amoutn of data we can accept
+		n_data = i2c_max_index - i2c_cur_index;
+		if( n_data  > 0 ) {
+			i2c_last_rx = n_data;
+			if( HAL_I2C_Slave_Sequential_Receive_IT(hi2c, i2c_rx_buffer,
+					i2c_last_rx, I2C_FIRST_FRAME) != HAL_OK) {
+				i2c_fatal();
+			}
+		}
+		else{
+			// index out of range
+			i2c_debug("index out of range no ack no more recv ");
+		}
+
+		break;
+	}
+}
+
+
+void roll_back_index(){
+	if( i2c_cur_index >= i2c_max_index  )
+		i2c_cur_index=0;
+}
+
+
+void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
+		uint16_t AddrMatchCode) {
+	int n_data;
+	int rc;
+	i2c_cnt.addr++;
+	i2c_cb();
+
+	if (TransferDirection == I2C_DIRECTION_TRANSMIT) {
+		// can read from idnex up to and of buffer not more
+//HAL_I2C_Slave_Sequential_Receive_IT( *hi2c, uint8_t *pData, uint16_t Size, uint32_t XferOptions)
+		// rcv up to max at once
+		i2c_state = i2c_index;
+		rc = HAL_I2C_Slave_Sequential_Receive_IT(hi2c, &i2c_cur_index,1, I2C_FIRST_FRAME);
+		if ( rc != HAL_OK) {
+			i2c_fatal();
+		}
+
+	} else {
+		// host rd data sedn up to max we can
+		roll_back_index();
+		n_data = i2c_max_index - i2c_cur_index;
+		if ( n_data ){
+			i2c_state = i2c_tx;
+			rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
+			if ( rc != HAL_OK) {
+				i2c_fatal();
+			}
+			// if host do nto get all we don't care tu i2c is ready for up to full burst
+
+		}
+		else{
+			i2c_debug("host rd no data for index");
+			i2c_state = i2c_tx_nodata;
+		}
+
+	}
+}
+
 
 /* USER CODE END 1 */
 

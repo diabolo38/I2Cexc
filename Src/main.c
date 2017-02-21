@@ -59,6 +59,9 @@ void Error_Handler(void);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+uint8_t slave_addr=0x20;
+
+uint8_t wr_buffer[256];
 
 /* USER CODE END 0 */
 
@@ -66,7 +69,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+	int status;
+	int i;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -91,6 +95,15 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+#ifdef MASTER
+	  for( i=1; i<4;i++){
+		  uart_printf("to mem wr %d bytes ",i);
+		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 0xAA, 1, wr_buffer, i, 10000);
+		  uart_printf("status=%d\n", status);
+	  }
+#else
+#endif
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
