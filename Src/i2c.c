@@ -52,7 +52,7 @@ void MX_I2C1_Init(void)
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 64;
+  hi2c1.Init.OwnAddress1 = 32;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c1.Init.OwnAddress2 = 0;
@@ -207,6 +207,8 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	i2c_cnt.error++;
 	//TODO listen again ?
 	i2c_cb();
+	// master end wr xfer by a last nack what is normal we have erro code "4"
+	// so detetcing it is ok also a "listen complete cb"  will occur anyway after it
 }
 
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
@@ -232,6 +234,7 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 					i2c_last_rx, I2C_FIRST_FRAME) != HAL_OK) {
 				i2c_fatal();
 			}
+			i2c_state = i2c_rx;
 		}
 		else{
 			// index out of range
@@ -239,8 +242,15 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 			i2c_cnt.no_rx_data++;
 			i2c_state = i2c_rx_nodata;
 			// FIXME maybe we shall listen again or is ok to juts wait "listencompletd"
+			// if we do not get data master get crazy and slave hal code keep on looping on sme irq
+			//  and maybe is not nakign to hots !
+			// so we have to do something like rcv data but discard it at end (base on state)
 		}
 
+		break;
+	case i2c_rx:
+		// do something with data and keep rcv or handle it  like abve
+		i2c_state = i2c_rx_nodata;
 		break;
 	}
 }
