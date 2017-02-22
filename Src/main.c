@@ -97,9 +97,13 @@ int main(void)
   {
 
 #ifdef MASTER
+	  //shall nack on 2nd byte
+	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
+	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 30, 1, wr_buffer, 3, 10000);
+	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
 	  for( i=1; i<4;i++){
 		  uart_printf("to mem wr %d bytes ",i);
-		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 0xAA, 1, wr_buffer, i, 10000);
+		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i, 10000);
 		  uart_printf("status=%d\n", status);
 	  }
 #else
