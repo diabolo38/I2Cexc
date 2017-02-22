@@ -149,7 +149,7 @@ uint8_t  i2c_cur_index;
 int i2c_max_index = N_REG; /// all index > thsi bad
 uint8_t i2c_rx_buffer[256];
 uint8_t i2c_reg_buffer[N_REG];
-
+uint8_t i2c_dummy_data[4]={0xDE,0xAD,0xBE, 0xEF};
 
 enum i2c_state_e{
 	list_addr=0,
@@ -159,7 +159,7 @@ enum i2c_state_e{
 	i2c_tx, // after index rx in data up to last_rx
 	i2c_tx_nodata, // host ask for rd but index is out of range (at max) and we can't send anything
 };
-int i2c_state;
+enum i2c_state_e i2c_state;
 
 static void i2c_cb(void){
 	//for brk and check common path to all cb
@@ -177,21 +177,26 @@ __weak int i2c_do_in_msg(int index, int n_data,  uint8_t *data){
 	return 0;
 }
 
-void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
+void i2c_handle_in_done(){
 	int n_wr;
+	n_wr = i2c_last_rx-hi2c1.XferCount-1;
+	i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
+	i2c_cur_index += n_wr;
+
+}
+
+void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 	i2c_cnt.listen++;
 	i2c_cb();
 
 	switch (i2c_state){
 	case i2c_rx:
 		// time  to do smthg with all data receive if any
-		n_wr = i2c_last_rx-hi2c1.XferCount;
-		i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
-		i2c_cur_index += n_wr;
-		break;
+		i2c_handle_in_done();
+	break;
 
 	case i2c_tx:
-		// time  to do smthg with all data receive if any
+		// we can update index with final amount of data sent
 		break;
 
 	default:
@@ -207,8 +212,8 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	i2c_cnt.error++;
 	//TODO listen again ?
 	i2c_cb();
-	// master end wr xfer by a last nack what is normal we have erro code "4"
-	// so detetcing it is ok also a "listen complete cb"  will occur anyway after it
+	// master wr xfer may end by a last "nack" what is normal we have error code "4"
+	// we can handle it now but a "listen complete cb"  will occur anyway after it where we can factorize handling
 }
 
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
@@ -218,6 +223,16 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
 	// TODO go have to go back to listen if list cplt is nto call !
 	// we can know how many data effecively sent to host by using "count"
 
+}
+
+static int i2c_dummy_rd(){
+	int rc;
+	i2c_state = i2c_rx_nodata;
+	rc =  HAL_I2C_Slave_Sequential_Receive_IT(&hi2c1, i2c_dummy_data,	sizeof(i2c_dummy_data), I2C_LAST_FRAME);
+	if( rc != HAL_OK) {
+		i2c_fatal();
+	}
+	return rc;
 }
 
 void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
@@ -245,12 +260,18 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 			// if we do not get data master get crazy and slave hal code keep on looping on sme irq
 			//  and maybe is not nakign to hots !
 			// so we have to do something like rcv data but discard it at end (base on state)
+
 		}
 
 		break;
 	case i2c_rx:
-		// do something with data and keep rcv or handle it  like abve
-		i2c_state = i2c_rx_nodata;
+		// full payload handle message
+		i2c_handle_in_done();
+		// fall back to dummy read now stop string what host send
+	default:
+		// keep rcv blike above
+		i2c_cnt.no_rx_data++;
+		i2c_dummy_rd();
 		break;
 	}
 }
@@ -267,7 +288,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 	int n_data;
 	int rc;
 	i2c_cnt.addr++;
-	i2c_cb();
+	//i2c_cb();
 
 	if (TransferDirection == I2C_DIRECTION_TRANSMIT) {
 		// can read from idnex up to and of buffer not more
@@ -283,21 +304,20 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		// host rd data sedn up to max we can
 		roll_back_index();
 		n_data = i2c_max_index - i2c_cur_index;
-		if ( n_data ){
-			i2c_state = i2c_tx;
-			rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
-			if ( rc != HAL_OK) {
-				i2c_fatal();
-			}
-			// if host do nto get all we don't care tu i2c is ready for up to full burst
-
-		}
-		else{
+		if ( n_data <= 0 ){
+			//that is a bug shall nevr happen at least we have one byte !
 			i2c_debug("host rd no data for index");
 			i2c_state = i2c_tx_nodata;
-			i2c_cnt.no_tx_data++;
-			//FIXME shall we kick off listen again or wait for "complete ie stop or restart ?"
+
+			i2c_fatal();
 		}
+		i2c_state = i2c_tx;
+		rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
+		if ( rc != HAL_OK) {
+			i2c_fatal();
+		}
+		// if host do not get all we don't care but i2c is ready for up to full burst
+		// note tha HAL slaebv nto host is handling nak properly
 
 	}
 }

@@ -4354,7 +4354,12 @@ static HAL_StatusTypeDef I2C_SlaveReceive_RXNE(I2C_HandleTypeDef *hi2c)
     /* Read data from DR */
     (*hi2c->pBuffPtr++) = hi2c->Instance->DR;
     hi2c->XferCount--;
+#ifdef FIX_NACK1
+    if( hi2c->XferCount == 0 ){
+       	 hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
 
+       }
+#endif
     if((hi2c->XferCount == 0U) && (CurrentState == HAL_I2C_STATE_BUSY_RX_LISTEN))
     {
       /* Last Byte is received, disable Interrupt */
@@ -4385,6 +4390,16 @@ static HAL_StatusTypeDef I2C_SlaveReceive_BTF(I2C_HandleTypeDef *hi2c)
     (*hi2c->pBuffPtr++) = hi2c->Instance->DR;
     hi2c->XferCount--;
   }
+  else{
+	  int x;
+	  // read and discard we shall nak below
+	  x = hi2c->Instance->DR;
+  }
+
+  if( hi2c->XferCount == 0 ){
+  	 hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
+  }
+
   return HAL_OK;
 }
 
