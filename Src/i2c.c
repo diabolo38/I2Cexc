@@ -146,6 +146,7 @@ struct i2c_stat_t {
 	int rx; // cb cnt
 	int addr; // cb cnt
 
+	int n_wr; // internal tx with index limit host get more data
 	int no_tx_data; // internal tx with index limit host get more data
 	int no_rx_data; // internal rx with index limit host put more data
 };
@@ -195,14 +196,13 @@ __weak int i2c_do_in_msg(int index, int n_data,  uint8_t *data){
 
 void i2c_handle_wr_done(){
 	int n_wr;
+	I2C_STAT(n_wr++);
 	n_wr = i2c_last_rx-hi2c1.XferCount;
-	i2c_new_data++;
 	i2c_access.rd_wr = 0;
 	i2c_access.index = i2c_cur_index;
 	i2c_access.n_data = n_wr;
-	i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
-	i2c_cur_index += n_wr;
-
+	i2c_new_data++;
+	//i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
 }
 
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
