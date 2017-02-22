@@ -146,7 +146,9 @@ struct i2c_stat_t {
 	int rx; // cb cnt
 	int addr; // cb cnt
 
-	int n_wr; // internal tx with index limit host get more data
+	int n_wr; // internal rx with index limit host may set more data trashed
+	int n_rd; // internal tx with index limit host may get more data undifined
+
 	int no_tx_data; // internal tx with index limit host get more data
 	int no_rx_data; // internal rx with index limit host put more data
 };
@@ -159,13 +161,17 @@ struct i2c_stat_t {
 #endif
 
 volatile int n_cb=0;
-int i2c_last_rx;
+int i2c_last_rx;	/* amount of byte on last rx */
+int i2c_last_tx;	/* amount of byte on last tx */
 uint8_t  i2c_cur_index;
 
 #define N_REG	32
 int i2c_max_index = N_REG; /// all index > thsi bad
 uint8_t i2c_rx_buffer[256];
-uint8_t i2c_reg_buffer[N_REG];
+uint8_t i2c_reg_buffer[N_REG]={0x00, 0x01, 0x2, 3 , 4 ,5,6,7,
+		8,9,10,11,12,13,14,15,
+		16,17,18,19,20,21,22,23,
+		24,25,26,27,28,29,30,21};
 uint8_t i2c_dummy_data[4]={0xDE,0xAD,0xBE, 0xEF};
 
 enum i2c_state_e{
@@ -205,6 +211,18 @@ void i2c_handle_wr_done(){
 	//i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
 }
 
+void i2c_handle_rd_done(){
+	int n_rd;
+	I2C_STAT(n_rd++);
+	n_rd = i2c_last_tx-hi2c1.XferCount; //we ca'( quiet say if last was sent
+	i2c_access.rd_wr = 1;
+	i2c_access.index = i2c_cur_index;
+	i2c_access.n_data = n_rd;
+	i2c_new_data++;
+
+	//i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
+}
+
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 	I2C_STAT(listen++);
 	i2c_cb();
@@ -217,6 +235,7 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 
 	case i2c_tx:
 		// we can update index with final amount of data sent
+		i2c_handle_rd_done();
 		break;
 
 	default:
@@ -225,7 +244,8 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 	}
 	// whatever we didi get ready again
 	i2c_state = list_addr;
-	HAL_I2C_EnableListen_IT(hi2c);
+	if( i2c_new_data )
+		HAL_I2C_EnableListen_IT(hi2c);
 }
 
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
@@ -242,6 +262,9 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
 	// we have send all data cool ;)
 	// TODO go have to go back to listen if list cplt is nto call !
 	// we can know how many data effecively sent to host by using "count"
+	if( i2c_state == i2c_tx )
+		i2c_handle_rd_done();
+	i2c_state = i2c_tx_nodata;
 
 }
 
@@ -324,7 +347,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		}
 
 	} else {
-		// host rd data sedn up to max we can
+		// host rd data send up to max we can
 		roll_back_index();
 		n_data = i2c_max_index - i2c_cur_index;
 		if ( n_data <= 0 ){
@@ -335,10 +358,22 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 			i2c_fatal();
 		}
 		i2c_state = i2c_tx;
+		i2c_last_tx = n_data;
+#if 1
+		// HAl is not wiling to change fm RX to TX after "restart" wihjotu hognt o "listen"
+		//so if any rx data was left ie hwo culd we predict  that  we get  index or index +n*xdata :(
+		// or we must rd byte per byte to avoid that situation
+		// FIXME as they may be no listen comp yet is we where etting ofr a potential buig write
+		// we may have to check index gto rvcv well and take action
+		// we shall not epect bad stuf if wr  index and more then a restart rd w/o stop
+		// let try simple hack for test
+		hi2c->PreviousState = hi2c->State;
+		hi2c->State = HAL_I2C_STATE_LISTEN;
 		rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
 		if ( rc != HAL_OK) {
 			i2c_fatal();
 		}
+#endif
 		// if host do not get all we don't care but i2c is ready for up to full burst
 		// note tha HAL slaebv nto host is handling nak properly
 
