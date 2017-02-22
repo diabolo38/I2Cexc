@@ -36,7 +36,28 @@
   /* Includes ------------------------------------------------------------------*/
 
 /* USER CODE BEGIN Includes */
+#if 1
+/**
+ * Enter critical section in interrupt handler aka disable all interrupts
+ * @warning does not support multiple enter/exit
+ */
+#define _CriticalEnter() \
+    uint32_t prim = __get_PRIMASK();\
+    __disable_irq();
 
+/**
+ * Exit critical section in interrupt handler
+ * @warning does not support multiple enter/exit in same scope (local var defined)
+ */
+#define _CriticalExit() \
+    if( !prim  ){\
+        __enable_irq();\
+    }
+
+#else
+#   define _CriticalExit()
+#   define _CriticalEnter()
+#endif
 /* USER CODE END Includes */
 
 /* Private define ------------------------------------------------------------*/

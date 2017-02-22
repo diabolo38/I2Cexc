@@ -49,6 +49,16 @@
 extern I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN Private defines */
+extern volatile int i2c_new_data;
+struct i2c_acces_t {
+	int index;
+	int rd_wr;
+	int n_data;
+};
+extern struct i2c_acces_t i2c_access;
+
+/** mostly fo debug best not used */
+extern uint8_t i2c_rx_buffer[256];
 
 /* USER CODE END Private defines */
 

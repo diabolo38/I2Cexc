@@ -38,9 +38,18 @@
 #include "gpio.h"
 
 /* USER CODE BEGIN 0 */
+/** if set then any extra host write is handled but data is discarded
+ * if nto active then any extra wr may screw up master/slave
+ * altertive is to use modified hal to nak write when no more data is needed what is the "i2c slave practise "
+ *
+ */
+#define	I2C_SALVE_WR_TRASH_JUNK	1
+
 #define i2c_debug(...) (void)0
 // "index out of range no ack no more recv ");
 
+volatile int i2c_new_data;
+struct i2c_acces_t i2c_access;
 /* USER CODE END 0 */
 
 I2C_HandleTypeDef hi2c1;
@@ -140,7 +149,14 @@ struct i2c_stat_t {
 	int no_tx_data; // internal tx with index limit host get more data
 	int no_rx_data; // internal rx with index limit host put more data
 };
-volatile struct i2c_stat_t i2c_cnt;
+
+#if 1
+	volatile struct i2c_stat_t i2c_cnt;
+#	define I2C_STAT(x) i2c_cnt.x
+#else
+#	define I2C_STAT(x) (void)0
+#endif
+
 volatile int n_cb=0;
 int i2c_last_rx;
 uint8_t  i2c_cur_index;
@@ -177,22 +193,26 @@ __weak int i2c_do_in_msg(int index, int n_data,  uint8_t *data){
 	return 0;
 }
 
-void i2c_handle_in_done(){
+void i2c_handle_wr_done(){
 	int n_wr;
-	n_wr = i2c_last_rx-hi2c1.XferCount-1;
+	n_wr = i2c_last_rx-hi2c1.XferCount;
+	i2c_new_data++;
+	i2c_access.rd_wr = 0;
+	i2c_access.index = i2c_cur_index;
+	i2c_access.n_data = n_wr;
 	i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
 	i2c_cur_index += n_wr;
 
 }
 
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
-	i2c_cnt.listen++;
+	I2C_STAT(listen++);
 	i2c_cb();
 
 	switch (i2c_state){
 	case i2c_rx:
 		// time  to do smthg with all data receive if any
-		i2c_handle_in_done();
+		i2c_handle_wr_done();
 	break;
 
 	case i2c_tx:
@@ -209,7 +229,7 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 }
 
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
-	i2c_cnt.error++;
+	I2C_STAT(error++);
 	//TODO listen again ?
 	i2c_cb();
 	// master wr xfer may end by a last "nack" what is normal we have error code "4"
@@ -217,7 +237,7 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 }
 
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
-	i2c_cnt.tx++;
+	I2C_STAT(tx++);
 	i2c_cb();
 	// we have send all data cool ;)
 	// TODO go have to go back to listen if list cplt is nto call !
@@ -225,19 +245,20 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
 
 }
 
-static int i2c_dummy_rd(){
-	int rc;
+static void i2c_wr_trashing(){
 	i2c_state = i2c_rx_nodata;
+#if I2C_SALVE_WR_TRASH_JUNK
+	int rc;
 	rc =  HAL_I2C_Slave_Sequential_Receive_IT(&hi2c1, i2c_dummy_data,	sizeof(i2c_dummy_data), I2C_LAST_FRAME);
 	if( rc != HAL_OK) {
 		i2c_fatal();
 	}
-	return rc;
+#endif
 }
 
 void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 	int n_data;
-	i2c_cnt.rx++;
+	I2C_STAT(rx++);
 	i2c_cb();
 	switch( i2c_state){
 	case i2c_index:
@@ -254,7 +275,7 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		else{
 			// index out of range
 			i2c_debug("in rx no more rx possible cos index");
-			i2c_cnt.no_rx_data++;
+			I2C_STAT(no_rx_data++);
 			i2c_state = i2c_rx_nodata;
 			// FIXME maybe we shall listen again or is ok to juts wait "listencompletd"
 			// if we do not get data master get crazy and slave hal code keep on looping on sme irq
@@ -266,12 +287,14 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		break;
 	case i2c_rx:
 		// full payload handle message
-		i2c_handle_in_done();
+		i2c_handle_wr_done();
 		// fall back to dummy read now stop string what host send
+		i2c_wr_trashing();
+		break;
 	default:
 		// keep rcv blike above
-		i2c_cnt.no_rx_data++;
-		i2c_dummy_rd();
+		I2C_STAT(no_rx_data++);
+		i2c_wr_trashing();
 		break;
 	}
 }
@@ -287,7 +310,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		uint16_t AddrMatchCode) {
 	int n_data;
 	int rc;
-	i2c_cnt.addr++;
+	I2C_STAT(addr++);
 	//i2c_cb();
 
 	if (TransferDirection == I2C_DIRECTION_TRANSMIT) {

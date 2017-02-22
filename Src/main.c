@@ -60,8 +60,8 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN 0 */
 uint8_t slave_addr=0x20;
-
 uint8_t wr_buffer[256];
+char pr_buffer[256];
 
 /* USER CODE END 0 */
 
@@ -99,8 +99,11 @@ int main(void)
 #ifdef MASTER
 	  //shall nack on 2nd byte
 	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
-	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 30, 1, wr_buffer, 3, 10000);
-	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
+	  uart_printf("mem wr extra 1 bytes styatus %d", status);
+	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 3, 10000);
+	  uart_printf("mem wr extra 2 bytes styatus %d", status);
+
+
 	  for( i=1; i<4;i++){
 		  uart_printf("to mem wr %d bytes ",i);
 		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i, 10000);
@@ -110,8 +113,23 @@ int main(void)
 	  status = i1c_start();
 	  while( 1){
 		  __WFI();
-		  HAL_Delay(1000);
 		  // do some  print
+		  if( i2c_new_data ){
+			  uart_printf("%d i2c %c idx=%d %d data\n", i2c_new_data,
+					  i2c_access.rd_wr ? 'r':'w' , i2c_access.index, i2c_access.n_data );
+			  if( i2c_access.rd_wr == 0 ){
+				  char *p;
+				  for( i=0, p=pr_buffer; i < i2c_access.n_data;  i++){
+					  sprintf( p,  "%02x ", i2c_rx_buffer[i]);
+					  p+=3;
+				  }
+				  *p=0;
+				  uart_printf("data=%s\n",pr_buffer);
+			  }
+			  _CriticalEnter();
+			  i2c_new_data=0;
+			  _CriticalExit();
+		  }
 	  }
 #endif
   /* USER CODE END WHILE */
