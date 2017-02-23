@@ -101,24 +101,47 @@ void rd_test(){
 	int rc;
 	int idx,i;
 	char *p;
-	for( idx= 0; idx<32-4; idx++){
-		int n = idx%4+1;
-		rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer,n, 10000);
-			uart_printf("mem rd @%d %db status %d\n", idx, n ,rc);
-			for(i=0, p=pr_buffer; i<n; i++, p+=3)
-				sprintf(p,"%02X ",rd_buffer[i] );
-			*p=0;
-			uart_printf("data =%s\n", pr_buffer);
-			HAL_Delay(acc_delay);
+	int test;
+
+	test=1+2+4;
+
+	if( test&1 ){
+		uart_printf("==== rd  good addr ===\n");
+		for( idx= 0; idx<32-4; idx++){
+			int n = idx%4+1;
+			rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer,n, 10000);
+				for(i=0, p=pr_buffer; i<n; i++, p+=3)
+					sprintf(p,"%02X ",rd_buffer[i] );
+				*p=0;
+				uart_printf("mem rd @%d %db status %d data=%s\n", idx, n ,rc,pr_buffer);
+				HAL_Delay(acc_delay);
+		}
 	}
-	for( idx= 2; idx<5; idx++){
-		rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, 31, 1, rd_buffer,idx, 10000);
-			uart_printf("mem rd with extra %d status %d\n", idx-1,rc);
-			for(i=0, p=pr_buffer; i<idx; i++, p+=3)
-				sprintf(p,"%02X ",rd_buffer[i] );
-			*p=0;
-			uart_printf("data =%s\n", pr_buffer);
+	if( test&2){
+		uart_printf("==== wr to invalid addr ===\n");
+		for (idx = 2; idx < 5; idx++) {
+			rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, 31, 1, rd_buffer, idx, 10000);
+			for (i = 0, p = pr_buffer; i < idx; i++, p += 3)
+				sprintf(p, "%02X ", rd_buffer[i]);
+			*p = 0;
+			uart_printf("mem rd with ext %d status %d data=%s\n", idx - 1, rc, pr_buffer);
 			HAL_Delay(acc_delay);
+		}
+	}
+	if ( test&4){
+		uart_printf("==== rand wr  + rd ===\n");
+		for (idx = 2; idx < 64; idx += 3) {
+			int n = idx % 4 + 1;
+			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx, 1, wr_buffer, n, 10000);
+			uart_printf("wr @%d %d rc %d\n", idx, n, rc);
+			HAL_Delay(acc_delay);
+			rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer, n, 10000);
+			for (i = 0, p = pr_buffer; i < idx; i++, p += 3)
+				sprintf(p, "%02X ", rd_buffer[i]);
+			*p = 0;
+			uart_printf("rd @%d %db rc=%d data=%s\n", idx, n, rc, pr_buffer);
+			HAL_Delay(acc_delay);
+		}
 	}
 }
 #endif
