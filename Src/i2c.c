@@ -310,6 +310,9 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 	switch( i2c_state){
 	case i2c_index:
 		// now we have index we can limit amoutn of data we can accept
+		// TODO roll_back_index(); or not
+		// if host send an invalid index we here fully ignore the write ! for read we do accept "rool over"
+		// as is on the uart log it look strange in wr/rd test as only rd appear
 		n_data = i2c_max_index - i2c_cur_index;
 		if( n_data  > 0 ) {
 			i2c_last_rx = n_data;
