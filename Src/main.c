@@ -129,8 +129,10 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 	int i;
+#ifdef MASTER
 	int do_wr_test=0;
 	int do_rd_test=1;
+#endif
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -162,7 +164,10 @@ int main(void)
 	  if( do_rd_test )
 		  rd_test();
 #else
-	  status = i1c_start();
+	  int status = i1c_start();
+	  if( status ) {
+		  uart_printf("fail to tsart slave %d\n",status);
+	  }
 	  while( 1){
 		  __WFI();
 		  // do some  print

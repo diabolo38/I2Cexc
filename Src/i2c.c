@@ -44,6 +44,10 @@
  *
  */
 #define	I2C_SALVE_WR_TRASH_JUNK	1
+/** if set any extra read pass end of valid index is handed as retrun trash
+ * if not set it will hang master in case of such index issue
+ */
+#define	I2C_SALVE_RD_TRASH_JUNK	1
 
 #define i2c_debug(...) (void)0
 // "index out of range no ack no more recv ");
@@ -151,6 +155,9 @@ struct i2c_stat_t {
 
 	int no_tx_data; // internal tx with index limit host get more data
 	int no_rx_data; // internal rx with index limit host put more data
+
+	int addr_rx_rdy;	// count fixed state in addr  with rx
+	int addr_tx_rdy;	// count fixed state in addr  with tx
 };
 
 #if 1
@@ -175,12 +182,12 @@ uint8_t i2c_reg_buffer[N_REG]={0x00, 0x01, 0x2, 3 , 4 ,5,6,7,
 uint8_t i2c_dummy_data[4]={0xDE,0xAD,0xBE, 0xEF};
 
 enum i2c_state_e{
-	list_addr=0,
-	i2c_index,	// after a addr with wr 1st byte to be rx in
-	i2c_rx, // after index rx we do rx in up to  max data we could
-	i2c_rx_nodata, // after index rx in  rcv => but is bad => data can be read/wr cos bad index just nack
-	i2c_tx, // after index rx in data up to last_rx
-	i2c_tx_nodata, // host ask for rd but index is out of range (at max) and we can't send anything
+	list_addr     = 0x00,
+	i2c_index     = 0x01,// after a addr with wr 1st byte to be rx in
+	i2c_rx        = 0x02, // after index rx we do rx in up to  max data we could
+	i2c_rx_nodata = 0x04, // after index rx in  rcv => but is bad => data can be read/wr cos bad index just nack
+	i2c_tx        = 0x08, // after index rx in data up to last_rx
+	i2c_tx_nodata = 0x10, // host ask for rd but index is out of range (at max) and we can't send anything
 };
 enum i2c_state_e i2c_state;
 
@@ -226,6 +233,7 @@ void i2c_handle_rd_done(){
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 	I2C_STAT(listen++);
 	i2c_cb();
+	int listen=0;
 
 	switch (i2c_state){
 	case i2c_rx:
@@ -238,13 +246,17 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 		i2c_handle_rd_done();
 		break;
 
+	case i2c_rx_nodata:
+	case i2c_tx_nodata:
+		listen=1;
+		break;
 	default:
 		// whatever get ready again and be ready
 		break;
 	}
 	// whatever we didi get ready again
 	i2c_state = list_addr;
-	if( i2c_new_data )
+	if( i2c_new_data || listen )
 		HAL_I2C_EnableListen_IT(hi2c);
 }
 
@@ -253,7 +265,17 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	//TODO listen again ?
 	i2c_cb();
 	// master wr xfer may end by a last "nack" what is normal we have error code "4"
-	// we can handle it now but a "listen complete cb"  will occur anyway after it where we can factorize handling
+	// we can handle it now but a "listen complete cb"  will likely anyway after it where we can factorize handling
+}
+
+void i2c_rd_trashing() {
+#if	I2C_SALVE_RD_TRASH_JUNK
+	int rc;
+	rc = HAL_I2C_Slave_Sequential_Transmit_IT(&hi2c1, i2c_dummy_data, sizeof(i2c_dummy_data), I2C_LAST_FRAME);
+	if( rc != HAL_OK) {
+		i2c_fatal();
+	}
+#endif
 }
 
 void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
@@ -265,6 +287,7 @@ void HAL_I2C_SlaveTxCpltCallback(I2C_HandleTypeDef *hi2c){
 	if( i2c_state == i2c_tx )
 		i2c_handle_rd_done();
 	i2c_state = i2c_tx_nodata;
+	i2c_rd_trashing();
 
 }
 
@@ -278,6 +301,7 @@ static void i2c_wr_trashing(){
 	}
 #endif
 }
+
 
 void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 	int n_data;
@@ -341,6 +365,18 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 //HAL_I2C_Slave_Sequential_Receive_IT( *hi2c, uint8_t *pData, uint16_t Size, uint32_t XferOptions)
 		// rcv up to max at once
 		i2c_state = i2c_index;
+#if 1
+		/* after a host write that did not ended sending all data cos it was address only and we prepaerd to accept more write data
+		 * now we "addr" without listen complete  nor error  call back what did HAL done fo "re-start"  bit ?
+		 * hence trying to read form this restart wuiht state "ready" fail cos HAl want LISTEN
+		 *  let patch it work it is valid to change and we are listening if not how could we get "addr"
+		 */
+		if( hi2c->State != HAL_I2C_STATE_LISTEN){
+			hi2c->PreviousState = hi2c->State;
+			hi2c->State= HAL_I2C_STATE_LISTEN;
+			I2C_STAT(addr_rx_rdy++);
+		}
+#endif
 		rc = HAL_I2C_Slave_Sequential_Receive_IT(hi2c, &i2c_cur_index,1, I2C_FIRST_FRAME);
 		if ( rc != HAL_OK) {
 			i2c_fatal();
@@ -360,20 +396,25 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		i2c_state = i2c_tx;
 		i2c_last_tx = n_data;
 #if 1
-		// HAl is not wiling to change fm RX to TX after "restart" wihjotu hognt o "listen"
-		//so if any rx data was left ie hwo culd we predict  that  we get  index or index +n*xdata :(
-		// or we must rd byte per byte to avoid that situation
-		// FIXME as they may be no listen comp yet is we where etting ofr a potential buig write
-		// we may have to check index gto rvcv well and take action
-		// we shall not epect bad stuf if wr  index and more then a restart rd w/o stop
+		// HAl is not wiling to change fm RX to TX after "restart" if not "listen"
+		// so if any rx data was left but this can't be handle how could we predict  that  we'll get  index or index +n*xdata ?
+		// FIXME listen comp may bt haev hapen so a potential write may be missed
+		// we may have to check index got rvcv and orev state to take action
+		// we may not conidere "bad protol where wr inde + data is give a restart" a wite must end by a stop can do read with restart
 		// let try simple hack for test
-		hi2c->PreviousState = hi2c->State;
-		hi2c->State = HAL_I2C_STATE_LISTEN;
+		if( hi2c->State != HAL_I2C_STATE_LISTEN){
+			// for debug purpose we could patch alway
+			hi2c->PreviousState = hi2c->State;
+			hi2c->State = HAL_I2C_STATE_LISTEN;
+			I2C_STAT(addr_tx_rdy++);
+
+		}
+#endif
+
 		rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
 		if ( rc != HAL_OK) {
 			i2c_fatal();
 		}
-#endif
 		// if host do not get all we don't care but i2c is ready for up to full burst
 		// note tha HAL slaebv nto host is handling nak properly
 
