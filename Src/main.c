@@ -61,16 +61,76 @@ void Error_Handler(void);
 /* USER CODE BEGIN 0 */
 uint8_t slave_addr=0x20;
 uint8_t wr_buffer[256]={0x11, 0x22, 0x33, 0x44, 0x55};
+uint8_t rd_buffer[256]={0x11, 0x22, 0x33, 0x44, 0x55};
 char pr_buffer[256];
+int acc_delay=2; /* ms wait in between acces to leave slave tiem to do debug print */
 
+#ifdef MASTER
+void wr_test() {
+	int status;
+	int i;
+//shall nack on 2nd byte
+	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
+	uart_printf("mem wr extra 1 bytes styatus %d\n", status);
+	HAL_Delay(acc_delay);
+
+	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 3, 10000);
+	uart_printf("mem wr extra 2 bytes styatus %d\n", status);
+	HAL_Delay(acc_delay);
+
+	for (i = 1; i < 4; i++) {
+		uart_printf("to mem wr  @31 wr %d bytes with extra ", i);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i,
+				10000);
+		uart_printf("status=%d\n", status);
+		HAL_Delay(acc_delay);
+
+	}
+
+	for (i = 1; i < 31; i++) {
+		uart_printf("to mem wr @%d bytes ", i);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, i, 1, wr_buffer, i % 5,
+				10000);
+		uart_printf("status=%d\n", status);
+		HAL_Delay(acc_delay);
+
+	}
+}
+
+void rd_test(){
+	int rc;
+	int idx,i;
+	char *p;
+	for( idx= 0; idx<32-4; idx++){
+		int n = idx%4+1;
+		rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer,n, 10000);
+			uart_printf("mem rd @%d %db status %d\n", idx, n ,rc);
+			for(i=0, p=pr_buffer; i<n; i++, p+=3)
+				sprintf(p,"%02X ",rd_buffer[i] );
+			*p=0;
+			uart_printf("data =%s\n", pr_buffer);
+			HAL_Delay(acc_delay);
+	}
+	for( idx= 2; idx<5; idx++){
+		rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, 31, 1, rd_buffer,idx, 10000);
+			uart_printf("mem rd with extra %d status %d\n", idx-1,rc);
+			for(i=0, p=pr_buffer; i<idx; i++, p+=3)
+				sprintf(p,"%02X ",rd_buffer[i] );
+			*p=0;
+			uart_printf("data =%s\n", pr_buffer);
+			HAL_Delay(acc_delay);
+	}
+}
+#endif
 /* USER CODE END 0 */
 
 int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	int status;
 	int i;
+	int do_wr_test=0;
+	int do_rd_test=1;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -97,30 +157,10 @@ int main(void)
   {
 
 #ifdef MASTER
-	  //shall nack on 2nd byte
-	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
-	  uart_printf("mem wr extra 1 bytes styatus %d\n", status);
-	  HAL_Delay(3);
-
-	  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 3, 10000);
-	  uart_printf("mem wr extra 2 bytes styatus %d\n", status);
-	  HAL_Delay(3);
-
-	  for( i=1; i<4;i++){
-		  uart_printf("to mem wr  @31 wr %d bytes with extra ",i);
-		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i, 10000);
-		  uart_printf("status=%d\n", status);
-		  HAL_Delay(3);
-
-	  }
-
-	  for( i=1; i<31;i++){
-		  uart_printf("to mem wr @%d bytes ",i);
-		  status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, i, 1, wr_buffer, i%4, 10000);
-		  uart_printf("status=%d\n", status);
-		  HAL_Delay(3);
-
-	  }
+	  if( do_wr_test )
+		  wr_test();
+	  if( do_rd_test )
+		  rd_test();
 #else
 	  status = i1c_start();
 	  while( 1){
