@@ -103,7 +103,8 @@ void rd_test(){
 	char *p;
 	int test;
 
-	test=1+2+4;
+	//test=1+2+4;
+	test=8;
 
 	if( test&1 ){
 		uart_printf("==== rd  good addr ===\n");
@@ -130,17 +131,34 @@ void rd_test(){
 	}
 	if ( test&4){
 		uart_printf("==== rand wr  + rd ===\n");
-		for (idx = 2; idx < 64; idx += 3) {
+		for (idx = 32; idx < 64; idx += 3) {
 			int n = idx % 4 + 1;
 			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx, 1, wr_buffer, n, 10000);
 			uart_printf("wr @%d %d rc %d\n", idx, n, rc);
 			HAL_Delay(acc_delay);
 			rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer, n, 10000);
-			for (i = 0, p = pr_buffer; i < idx; i++, p += 3)
+			for (i = 0, p = pr_buffer; i < n; i++, p += 3)
 				sprintf(p, "%02X ", rd_buffer[i]);
 			*p = 0;
 			uart_printf("rd @%d %db rc=%d data=%s\n", idx, n, rc, pr_buffer);
 			HAL_Delay(acc_delay);
+		}
+	}
+	//mix bad and good write see if any is missed
+	if ( test&8){
+		uart_printf("==== rand wr  + rd ===\n");
+		for (idx = 32; idx < 64; idx += 3) {
+			int n = idx % 4 + 1;
+			int idx2=idx%32;
+			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx, 1, wr_buffer, n, 10000);
+			uart_printf("wr @%d %d rc %d\n", idx, n, rc);
+			HAL_Delay(acc_delay);
+			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx2, 1, wr_buffer, n, 10000);
+			uart_printf("wr @%d %d rc %d\n", idx2, n, rc);
+			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx2, 1, wr_buffer, n, 10000);
+			uart_printf("wr @%d %d rc %d\n", idx2, n, rc);
+			HAL_Delay(acc_drelay);
+
 		}
 	}
 }
