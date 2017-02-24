@@ -218,6 +218,17 @@ void i2c_handle_wr_done(){
 	//i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
 }
 
+/* for debg antest purpose make it (void)0 on real usage*/
+void i2c_handle_wr_invalid(int index){
+	int n_wr;
+	i2c_access.rd_wr = 0;
+	i2c_access.index = index;
+	i2c_access.n_data = 0;
+	i2c_new_data++;
+
+	//i2c_do_in_msg(i2c_cur_index, n_wr, i2c_rx_buffer);
+}
+
 void i2c_handle_rd_done(){
 	int n_rd;
 	I2C_STAT(n_rd++);
@@ -248,13 +259,16 @@ void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c){
 
 	case i2c_rx_nodata:
 	case i2c_tx_nodata:
+		//hi2c1.Instance->CR1 |= I2C_CR1_ACK;
 		listen=1;
 		break;
 	default:
 		// whatever get ready again and be ready
+		listen=1;
 		break;
 	}
 	// whatever we didi get ready again
+	//hi2c1.Instance->CR1 |= I2C_CR1_ACK;
 	i2c_state = list_addr;
 	if( i2c_new_data || listen )
 		HAL_I2C_EnableListen_IT(hi2c);
@@ -265,13 +279,17 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	//TODO listen again ?
 	i2c_cb();
 	// master wr xfer may end by a last "nack" what is normal we have error code "4"
-	// we can handle it now but a "listen complete cb"  will likely anyway after it where we can factorize handling
+	// as we may have forced nak it must be clear when stop occur on error
+
+	//hi2c1.Instance->CR1 |= I2C_CR1_ACK;
+	HAL_I2C_ListenCpltCallback(hi2c);
 }
 
 void i2c_rd_trashing() {
 #if	I2C_SALVE_RD_TRASH_JUNK
 	int rc;
-	rc = HAL_I2C_Slave_Sequential_Transmit_IT(&hi2c1, i2c_dummy_data, sizeof(i2c_dummy_data), I2C_LAST_FRAME);
+	//rc = HAL_I2C_Slave_Sequential_Transmit_IT(&hi2c1, i2c_dummy_data, sizeof(i2c_dummy_data), I2C_LAST_FRAME);
+	rc = HAL_I2C_Slave_Sequential_Transmit_IT(&hi2c1, i2c_dummy_data, 1, I2C_LAST_FRAME);
 	if( rc != HAL_OK) {
 		i2c_fatal();
 	}
@@ -295,7 +313,9 @@ static void i2c_wr_trashing(){
 	i2c_state = i2c_rx_nodata;
 #if I2C_SALVE_WR_TRASH_JUNK
 	int rc;
-	rc =  HAL_I2C_Slave_Sequential_Receive_IT(&hi2c1, i2c_dummy_data,	sizeof(i2c_dummy_data), I2C_LAST_FRAME);
+	// handle nak here instead of hal patrch enabel to signal "nak" to host when to many data is sent
+	//hi2c1.Instance->CR1 &= ~I2C_CR1_ACK;
+	rc =  HAL_I2C_Slave_Sequential_Receive_IT(&hi2c1, i2c_dummy_data,	1, I2C_LAST_FRAME);
 	if( rc != HAL_OK) {
 		i2c_fatal();
 	}
@@ -327,22 +347,28 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 			i2c_debug("in rx no more rx possible cos index");
 			I2C_STAT(no_rx_data++);
 			i2c_state = i2c_rx_nodata;
-			// FIXME maybe we shall listen again or is ok to juts wait "listencompletd"
-			// if we do not get data master get crazy and slave hal code keep on looping on sme irq
-			//  and maybe is not nakign to hots !
+			// FIXME maybe we shall listen again or is ok to just wait "listen or error completed" ?
+			// if we do not get data master may get crazy and slave hal code keep on looping on same irq
+			//  and maybe is not nakign to host ?!
 			// so we have to do something like rcv data but discard it at end (base on state)
+			i2c_handle_wr_invalid(i2c_cur_index);
+			//if we do write trashing then btf patch in hal i2c s note required btu nevr host will see "nak"
+			// somehow depending bytes write in trash we can miss some cb and ahev to consier erro as listen end of xfer  due to error (and no complete)
 
+			//overall it work better when sending master garbage
+			i2c_wr_trashing();
 		}
 
 		break;
 	case i2c_rx:
 		// full payload handle message
 		i2c_handle_wr_done();
-		// fall back to dummy read now stop string what host send
+		i2c_state = i2c_rx_nodata;
 		i2c_wr_trashing();
 		break;
+
 	default:
-		// keep rcv blike above
+		// keep rcv like above
 		I2C_STAT(no_rx_data++);
 		i2c_wr_trashing();
 		break;
@@ -352,7 +378,7 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 
 void roll_back_index(){
 	if( i2c_cur_index >= i2c_max_index  )
-		i2c_cur_index=0;
+		i2c_cur_index%=i2c_max_index;
 }
 
 
@@ -390,7 +416,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		roll_back_index();
 		n_data = i2c_max_index - i2c_cur_index;
 		if ( n_data <= 0 ){
-			//that is a bug shall nevr happen at least we have one byte !
+			//that is a bug shall never happen at least we have one byte !
 			i2c_debug("host rd no data for index");
 			i2c_state = i2c_tx_nodata;
 
