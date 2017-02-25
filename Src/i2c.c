@@ -178,7 +178,8 @@ uint8_t  i2c_cur_index;
 int i2c_max_index = N_REG; /// all index > thsi bad
 uint8_t i2c_buffer[N_REG];
 uint8_t i2c_rx_buffer[N_REG];
-uint8_t i2c_reg_buffer[N_REG]={0x00, 0x01, 0x2, 3 , 4 ,5,6,7,
+uint8_t i2c_reg_buffer[N_REG]={
+		0, 1, 2, 3 , 4 ,5,6,7,
 		8,9,10,11,12,13,14,15,
 		16,17,18,19,20,21,22,23,
 		24,25,26,27,28,29,30,21};
@@ -356,8 +357,7 @@ void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		n_data = i2c_max_index - i2c_cur_index;
 		if( n_data  > 0 ) {
 			i2c_last_rx = n_data;
-			if( HAL_I2C_Slave_Sequential_Receive_IT(hi2c, i2c_rx_buffer,
-					i2c_last_rx, I2C_FIRST_FRAME) != HAL_OK) {
+			if( HAL_I2C_Slave_Sequential_Receive_IT(hi2c, i2c_buffer, i2c_last_rx, I2C_FIRST_FRAME) != HAL_OK) {
 				i2c_fatal();
 			}
 			i2c_state = i2c_rx;
@@ -458,7 +458,7 @@ void HAL_I2C_AddrCallback(I2C_HandleTypeDef *hi2c, uint8_t TransferDirection,
 		// user fil the dat to read as once copy require reading live from user "reg space"  cause hazard dur to concurent wr with f/W
 		i2c_get_data_cb(i2c_cur_index, i2c_buffer, n_data);
 
-		rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, &i2c_reg_buffer[i2c_cur_index], n_data, I2C_LAST_FRAME);
+		rc = HAL_I2C_Slave_Sequential_Transmit_IT(hi2c, i2c_buffer, n_data, I2C_LAST_FRAME);
 		if ( rc != HAL_OK) {
 			i2c_fatal();
 		}

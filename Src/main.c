@@ -216,15 +216,16 @@ int main(void)
 			  uart_printf("%d i2c %c idx=%d %d data", i2c_new_data,
 					  i2c_access.rd_wr ? 'r':'w' , i2c_access.index, i2c_access.n_data );
 			  if( i2c_access.rd_wr == 0 ){
+				  extern uint8_t i2c_buffer[32];
 				  char *p;
 				  for( i=0, p=pr_buffer; i < i2c_access.n_data;  i++){
 					  sprintf( p,  "%02x ", i2c_buffer[i]);
 					  p+=3;
 				  }
 				  *p=0;
-				  uart_printf("data=%s\n",pr_buffer);
+				  uart_printf(" data=%s\n",pr_buffer);
 			  }else{
-				  uart_printf("data=%s\n",pr_buffer);
+				  uart_printf("\n",pr_buffer);
 			  }
 			  _CriticalEnter();
 			  i2c_new_data=0;
