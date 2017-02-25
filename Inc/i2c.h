@@ -58,7 +58,7 @@ struct i2c_acces_t {
 extern struct i2c_acces_t i2c_access;
 
 /** mostly fo debug best not used */
-extern uint8_t i2c_rx_buffer[256];
+//extern uint8_t i2c_rx_buffer[256];
 
 /* USER CODE END Private defines */
 

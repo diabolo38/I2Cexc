@@ -4341,18 +4341,20 @@ static HAL_StatusTypeDef I2C_SlaveTransmit_BTF(I2C_HandleTypeDef *hi2c)
 /**
  * pacth salve btf to auto handle wr data that are to required
  */
-#define PATCH_BTF
+//#define PATCH_BTF
 
 /**
  * FXI NACK 1 enabke to pacth to nack for unwanted wr when not ready to get data
  * that is seen on master as error despite part of transfer was ok
  */
-#define FIX_NACK1
+//#define FIX_NACK1
 #ifdef PATCH_BTF
 int n_btf_patch;
+int btf_patch_nack=1;
 #endif
 #ifdef FIX_NACK1
 int n_nack_patch;
+int fix1_nack=1;
 #endif
 
 /**
@@ -4386,12 +4388,12 @@ static HAL_StatusTypeDef I2C_SlaveReceive_RXNE(I2C_HandleTypeDef *hi2c)
   }
 
 #ifdef FIX_NACK1
-  else
 	if (hi2c->XferCount == 0) {
 		n_nack_patch++;
 		volatile int x=hi2c->Instance->DR;
 		(void)x;
-		hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
+		if( fix1_nack)
+			hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
 	}
 #endif
   return HAL_OK;
@@ -4412,12 +4414,14 @@ static HAL_StatusTypeDef I2C_SlaveReceive_BTF(I2C_HandleTypeDef *hi2c)
     hi2c->XferCount--;
   }
 #ifdef PATCH_BTF
-  else{
+  if(hi2c->XferCount == 0U){
 	  volatile int x;
 	  // read and discard we shall nak below
 	  x = hi2c->Instance->DR;
 	  (void)x;
-  	// hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
+	  n_btf_patch++;
+	  if( btf_patch_nack)
+		   hi2c->Instance->CR1 &= ~I2C_CR1_ACK;
   }
 #endif
   return HAL_OK;
