@@ -60,7 +60,10 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN 0 */
 uint8_t slave_addr=0x20;
-uint8_t wr_buffer[256]={0x11, 0x22, 0x33, 0x44, 0x55};
+uint8_t wr_buffer[256]={0x01, 0x2, 0x3, 0x4, 0x5, 6, 7,8,
+		9,10,11,12,13,14,15,
+		16,17,18,19,20,21,22,23,
+		24,25,26,27,28,29,30,31};
 uint8_t rd_buffer[256]={0x11, 0x22, 0x33, 0x44, 0x55};
 char pr_buffer[256];
 int acc_delay=2; /* ms wait in between acces to leave slave tiem to do debug print */
@@ -70,30 +73,61 @@ void wr_test() {
 	int status;
 	int i;
 //shall nack on 2nd byte
+	uart_printf("== mostly  bad wr ==\n ");
+#if 0
 	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 2, 10000);
-	uart_printf("mem wr extra 1 bytes styatus %d\n", status);
+	uart_printf("mem wr extra 1 bytes rc %d\n", status);
 	HAL_Delay(acc_delay);
 
 	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 3, 10000);
-	uart_printf("mem wr extra 2 bytes styatus %d\n", status);
+	uart_printf("mem wr extra 2 bytes rc %d\n", status);
 	HAL_Delay(acc_delay);
-
-	for (i = 1; i < 4; i++) {
-		uart_printf("to mem wr  @31 wr %d bytes with extra ", i);
-		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i,
-				10000);
+#endif
+	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 5, 10000);
+	uart_printf("mem wr extra 4 bytes rc %d\n", status);
+	HAL_Delay(acc_delay);
+	status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, 5, 10000);
+	uart_printf("mem wr extra 4 bytes rc %d\n", status);
+	HAL_Delay(acc_delay);
+	for (i = 1; i < 32; i++) {
+		uart_printf("mem wr  @31 %d bytes + %d bad ", i, i-1);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 31, 1, wr_buffer, i,	10000);
 		uart_printf("status=%d\n", status);
 		HAL_Delay(acc_delay);
+	}
 
+
+	// this shall be check on analyzer of device how mnay byte got trashed
+	// what is expected is that slave nack real soon at best first bad index
+	// master must brake as soon as eeing a nack and report a failure (one data ok)
+	uart_printf("== mostly good  ==\n ");
+	//many goof btu last bad  bad
+	for (i = 1; i < 32; i++) {
+		uart_printf("mem wr @d %d bytes ( 1 bad) ", 32-i, i);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 32-i, 1, wr_buffer, i,10000);
+		uart_printf("status=%d\n", status);
+		HAL_Delay(acc_delay);
 	}
 
 	for (i = 1; i < 31; i++) {
-		uart_printf("to mem wr @%d bytes ", i);
-		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, i, 1, wr_buffer, i % 5,
+		int n=(i%7)+1;
+		uart_printf("to mem wr @%d %d bytes ", i, n);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, i, 1, wr_buffer, n,
 				10000);
 		uart_printf("status=%d\n", status);
 		HAL_Delay(acc_delay);
-
+	}
+	uart_printf("==repeat bad access==\n");
+	for (i = 1; i < 6; i++) {
+		int n=i%5;
+		uart_printf("to mem wr @%d %d bytes ", i, n);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 33, 1, wr_buffer, n,	10000);
+		uart_printf("status=%d\n", status);
+		HAL_Delay(acc_delay);
+		uart_printf("to mem wr @%d %d bytes ", i, n);
+		status = HAL_I2C_Mem_Write(&hi2c1, slave_addr, 33, 1, wr_buffer, n,	10000);
+		uart_printf("status=%d\n", status);
+		HAL_Delay(acc_delay);
 	}
 }
 
@@ -103,13 +137,12 @@ void rd_test(){
 	char *p;
 	int test;
 
-	//test=1+2+4;
-	test=8;
+	test=0xFFFFFFF;
 
 	if( test&1 ){
 		uart_printf("==== rd  good addr ===\n");
 		for( idx= 0; idx<32-4; idx++){
-			int n = idx%4+1;
+			int n = idx%7+1;
 			rc = HAL_I2C_Mem_Read(&hi2c1, slave_addr, idx, 1, rd_buffer,n, 10000);
 				for(i=0, p=pr_buffer; i<n; i++, p+=3)
 					sprintf(p,"%02X ",rd_buffer[i] );
@@ -157,10 +190,11 @@ void rd_test(){
 			uart_printf("wr @%d %d rc %d\n", idx2, n, rc);
 			rc = HAL_I2C_Mem_Write(&hi2c1, slave_addr, idx2, 1, wr_buffer, n, 10000);
 			uart_printf("wr @%d %d rc %d\n", idx2, n, rc);
-			HAL_Delay(acc_drelay);
+			HAL_Delay(acc_delay);
 
 		}
 	}
+
 }
 #endif
 /* USER CODE END 0 */
@@ -171,7 +205,7 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	int i;
 #ifdef MASTER
-	int do_wr_test=0;
+	int do_wr_test=1;
 	int do_rd_test=1;
 #endif
   /* USER CODE END 1 */
